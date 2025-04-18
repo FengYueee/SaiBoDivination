@@ -1,10 +1,11 @@
 from pywebio import start_server
-from pywebio.output import put_buttons, put_text,put_markdown
-from pywebio.input import input_group, select, input, NUMBER, TEXT, actions, textarea
+from pywebio.output import put_markdown, put_text, put_loading, use_scope, clear,put_html
+from pywebio.input import input_group, select, actions
 from pywebio.session import go_app
 from pywebio.platform.page import config
 from api import ImfAPI
 from datetime import datetime
+from deepseek import DeepSeekAPI
 
 @config(title="命理查询首页")
 def index():
@@ -16,13 +17,15 @@ def index():
     """)
     option = actions(
             label="选择你要进入的功能：",
-            buttons=["黄历查询", "五行查询", "退出"]
+            buttons=["黄历查询", "五行查询"]
         )
 
     if option == "黄历查询":
-        calendar()
+        clear()  # 清除当前页面内容
+        calendar()  # 调用黄历查询页面
     elif option == "五行查询":
-        wuxing()
+        clear()  # 清除当前页面内容
+        wuxing()  # 调用五行查询页面
     else:
         put_text("感谢使用，欢迎下次再来！")
 
@@ -31,6 +34,7 @@ def index():
 def calendar():
     """查看每日黄历，包含宜忌、节气、值日等信息"""
     put_markdown("## 📅 黄历查询页面\n")
+    # 这里可以添加黄历的具体内容和功能
 
 
 @config(title="五行查询")
@@ -54,9 +58,9 @@ def wuxing():
         select("出生时辰", options=shichen, name='shichen'),
     ])
 
-    data['shichen']=get_shichen_index(shichen,data['shichen'])
+    data['shichen'] = get_shichen_index(shichen, data['shichen'])
     
-    result=ShengChen.get_shengchen(data['year'], int(data['month']), int(data['day']), data['shichen'])
+    result = ShengChen.get_shengchen(data['year'], int(data['month']), int(data['day']), data['shichen'])
 
     if result:
         put_markdown("### 🧾 查询结果")
@@ -76,30 +80,74 @@ def wuxing():
         put_text("❌ 查询失败，请检查输入的日期和时辰。")
 
     option = actions(
-            label="是否需要赛博算命：",
-            buttons=["赛博算命", "退出"]
-        )
+        label="是否需要赛博算命：",
+        buttons=["赛博算命", "退出"]
+    )
 
     if option == "赛博算命":
-        calendar()
+        deepseek(result)
+        option1 = actions(
+            buttons=[ "退出"]
+        )
+        if option1 == "退出":
+            clear()
+            index()  # 跳转回首页
     elif option == "退出":
-        wuxing()
+        clear()  # 清除当前页面内容
+        index()  # 跳转回首页
     else:
         put_text("感谢使用，欢迎下次再来！")
     
-def get_shichen_index(shichen,shichen_str):
+def get_shichen_index(shichen, shichen_str):
     """
     根据时辰字符串返回其在时辰列表中的索引
     """
     try:
-        return shichen.index(shichen_str)*2
+        return shichen.index(shichen_str) * 2
     except ValueError:
         return -1  # 或者 raise 异常，视你想怎么处理
+
+def deepseek(result):
+    with use_scope('loading', clear=True):
+        put_html("""
+        <div style="text-align:center; padding:30px;">
+            <div class="loader"></div>
+            <p style="font-size:18px; color:#555;">🔮 正在召唤赛博大仙，请稍候片刻...</p>
+        </div>
+        <style>
+            .loader {
+                border: 8px solid #f3f3f3;
+                border-top: 8px solid #3498db;
+                border-radius: 50%;
+                width: 60px;
+                height: 60px;
+                animation: spin 1s linear infinite;
+                margin: auto;
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+        """)
+
+    messages = [
+        {"role": "system", "content": "你是人工智能助手."},
+        {"role": "user", "content": f"{result}请帮我进行算命"}
+    ]
+
+    # 调用 DeepSeekAPI 进行查询
+    response = deepseek_api.send_request(messages)
+
+    with use_scope('loading', clear=True):
+        put_markdown("### 🧾 查询结果")
+        put_markdown(response)
     
 
 if __name__ == '__main__':
-    ShengChen=ImfAPI("1719bf34f427805f0a1443b2ce5edf23", "http://apis.juhe.cn/birthEight/query")
-
-    HuangLi=ImfAPI("11ca56d611cb18c09791dc23b14bb1e7", "http://v.juhe.cn/laohuangli/d")
-    start_server( [index,calendar,wuxing],port=8080,debug=True)
+    ShengChen = ImfAPI("1719bf34f427805f0a1443b2ce5edf23", "http://apis.juhe.cn/birthEight/query")
+    HuangLi = ImfAPI("11ca56d611cb18c09791dc23b14bb1e7", "http://v.juhe.cn/laohuangli/d")
+    deepseek_api = DeepSeekAPI("d90a20d9-c192-4933-b39f-2db8387c6293", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
     
+    start_server([index, calendar, wuxing], port=8080, debug=True)
